@@ -44,6 +44,7 @@ class Match:
     canonical_score: int
     similarity: float
     match_type: str  # 'exact' or 'fuzzy'
+    artist_mbids: str = ''  # raw artist MBID list as stored in the index
 
 
 def main():
@@ -104,7 +105,7 @@ def try_exact_match(con: sqlite3.Connection, artist: str, title: str):
     if not lookup_key:
         return None
     cursor = con.execute('''
-        SELECT recording_mbid, recording_name, artist_credit_name,
+        SELECT recording_mbid, recording_name, artist_credit_name, artist_mbids,
                release_name, release_mbid, score
         FROM recordings
         WHERE combined_lookup = ?
@@ -114,7 +115,7 @@ def try_exact_match(con: sqlite3.Connection, artist: str, title: str):
     row = cursor.fetchone()
     if row is None:
         return None
-    recording_mbid, recording_name, artist_credit_name, release_name, release_mbid, score = row
+    recording_mbid, recording_name, artist_credit_name, artist_mbids, release_name, release_mbid, score = row
     return Match(
         recording_mbid=recording_mbid,
         recording_name=recording_name,
@@ -124,6 +125,7 @@ def try_exact_match(con: sqlite3.Connection, artist: str, title: str):
         canonical_score=score or 0,
         similarity=100.0,
         match_type='exact',
+        artist_mbids=artist_mbids or '',
     )
 
 
@@ -207,7 +209,7 @@ def fetch_candidate_details(con: sqlite3.Connection, rowids: list) -> list:
     """Fetch full detail rows plus searchable_text for the given rowids."""
     placeholders = ','.join('?' for _ in rowids)
     detail_cursor = con.execute(f'''
-        SELECT r.recording_mbid, r.recording_name, r.artist_credit_name,
+        SELECT r.recording_mbid, r.recording_name, r.artist_credit_name, r.artist_mbids,
                r.release_name, r.release_mbid, r.score, recordings_fts.searchable_text
         FROM recordings r
         JOIN recordings_fts ON recordings_fts.rowid = r.rowid
@@ -223,7 +225,7 @@ def rerank_fuzzy(candidates: list, searchable_query: str) -> list:
     tiebreaker among near-equal matches.
     """
     scored = []
-    for (recording_mbid, recording_name, artist_credit_name,
+    for (recording_mbid, recording_name, artist_credit_name, artist_mbids,
          release_name, release_mbid, canonical_score, candidate_text) in candidates:
         similarity = fuzz.WRatio(searchable_query, candidate_text or '')
         scored.append(Match(
@@ -235,6 +237,7 @@ def rerank_fuzzy(candidates: list, searchable_query: str) -> list:
             canonical_score=canonical_score or 0,
             similarity=similarity,
             match_type='fuzzy',
+            artist_mbids=artist_mbids or '',
         ))
     scored.sort(key=lambda m: (m.similarity, m.canonical_score), reverse=True)
     return scored
