@@ -5,9 +5,11 @@ MusicBrainz's own combined_lookup key (artist + title concatenated with no
 separator, all non-word characters stripped, lowercased, transliterated to
 ASCII) for fast exact matching against canonical_musicbrainz_data.csv.
 make_searchable_text() instead preserves word boundaries, so its output can
-be tokenized by FTS5 for token-level fuzzy retrieval. share_token() builds on
-that to answer whether two fields have any word in common, which is how a
-match is checked for the title actually surviving into it.
+be tokenized by FTS5 for token-level fuzzy retrieval. Two comparisons build on
+that: covers() asks whether enough of a title survived into a candidate, which
+is how a fuzzy match is accepted, and share_token() asks the weaker question of
+whether any word is in common, which is what an artist credit gets because a
+collaboration is routinely collapsed to one of its members.
 =====================
 INPUT ARGS:
 (none - this module provides helper functions, it is not run directly)
@@ -24,6 +26,7 @@ _NON_WORD_KEEP_SPACE_PATTERN = re.compile(r'[^\w\s]')
 _WHITESPACE_PATTERN = re.compile(r'\s+')
 TOKEN_MATCH_THRESHOLD = 85
 MIN_TOKEN_LENGTH = 3
+TITLE_COVERAGE = 0.6
 # Function words that must not carry a match on their own. Deliberately limited
 # to words with no topical content: 'down', 'back', 'love' and the like are left
 # out because in a song title they are the subject, not filler.
@@ -40,6 +43,33 @@ STOPWORDS = frozenset({
     'have', 'has', 'had', 'one', 'two', 'part', 'pt', 'vol', 'feat', 'ft',
     'featuring', 'version', 'remix', 'edit', 'mix', 'original', 'live',
 })
+
+
+def covers(left: str, right: str, minimum: float = TITLE_COVERAGE) -> bool:
+    """
+    True when enough of left is present in right. Sharing any single word is
+    too weak a test for a title - 'Hidden Gems' shares one with 'The Hidden
+    Light', and 'Brahms Cello Sonatas' with 'Trio for Piano, Violin and Cello'
+    - so require a proportion of left's words to survive rather than one of
+    them. The test is deliberately one-directional: right is allowed extra
+    words, since a canonical recording name routinely carries qualifiers the
+    request did not ('Ripple' against 'Ripple (2013 Remaster)').
+    """
+    return token_coverage(left, right) >= minimum
+
+
+def token_coverage(left: str, right: str, threshold: int = TOKEN_MATCH_THRESHOLD) -> float:
+    """
+    Fraction of left's significant words that have a counterpart in right,
+    counting near-spellings as counterparts. Returns 0.0 when either side has
+    nothing to compare.
+    """
+    left_tokens = significant_tokens(left)
+    right_tokens = significant_tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    matched = sum(1 for l in left_tokens if any(l == r or fuzz.ratio(l, r) >= threshold for r in right_tokens))
+    return matched / len(left_tokens)
 
 
 def share_token(left: str, right: str, threshold: int = TOKEN_MATCH_THRESHOLD) -> bool:

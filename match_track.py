@@ -21,6 +21,7 @@ title               song title to resolve
 -min_similarity     minimum fuzzy similarity (0-100) to accept a fuzzy-path match
 -allow_title_drift  accept a fuzzy match whose title shares no word with the requested title
 -require_artist     also require the matched artist credit to share a word with the requested artist
+-title_coverage     fraction of the requested title that must survive into a fuzzy match
 -debug              enable debug logging
 """
 
@@ -32,7 +33,7 @@ import logging
 import setup_logger
 from dataclasses import dataclass
 from rapidfuzz import fuzz
-from normalize import make_combined_lookup, make_searchable_text, share_token
+from normalize import make_combined_lookup, make_searchable_text, share_token, covers, TITLE_COVERAGE
 
 
 CANDIDATE_LIMIT = 50
@@ -60,7 +61,7 @@ def main():
     """
     args = setup_args()
     logger = logging.getLogger(__name__)
-    best = resolve(args.db_path, args.title, args.artist, args.min_similarity, not args.allow_title_drift, args.require_artist)
+    best = resolve(args.db_path, args.title, args.artist, args.min_similarity, not args.allow_title_drift, args.require_artist, args.title_coverage)
     if best is None:
         logger.info(f'No confident match found.')
         sys.exit(2)
@@ -74,7 +75,7 @@ def main():
     logger.info(f'Canonical score: {best.canonical_score}')
 
 
-def resolve(db_path: str, title: str, artist: str = None, min_similarity: float = 60.0, require_title: bool = True, require_artist: bool = False):
+def resolve(db_path: str, title: str, artist: str = None, min_similarity: float = 60.0, require_title: bool = True, require_artist: bool = False, title_coverage: float = TITLE_COVERAGE):
     """
     Resolve a title (with optional artist) to the best Match: try the exact
     combined_lookup path first, then the fuzzy FTS + rapidfuzz path. Return
@@ -91,12 +92,12 @@ def resolve(db_path: str, title: str, artist: str = None, min_similarity: float 
         if not candidates:
             return None
         ranked = rerank_fuzzy(candidates, searchable_query)
-        return select_best(ranked, title, min_similarity, require_title, artist, require_artist)
+        return select_best(ranked, title, min_similarity, require_title, artist, require_artist, title_coverage)
     finally:
         con.close()
 
 
-def select_best(ranked: list, title: str, min_similarity: float, require_title: bool = True, artist: str = None, require_artist: bool = False):
+def select_best(ranked: list, title: str, min_similarity: float, require_title: bool = True, artist: str = None, require_artist: bool = False, title_coverage: float = TITLE_COVERAGE):
     """
     Pick the best acceptable match from the ranked candidates. Similarity on
     its own is a weak filter, because the scorer weighs artist and title
@@ -115,7 +116,7 @@ def select_best(ranked: list, title: str, min_similarity: float, require_title: 
     for candidate in ranked:
         if candidate.similarity < min_similarity:
             break
-        if require_title and not share_token(title, candidate.recording_name):
+        if require_title and not covers(title, candidate.recording_name, title_coverage):
             continue
         if require_artist and artist and not share_token(artist, candidate.artist_credit_name):
             continue
@@ -279,6 +280,7 @@ def setup_args():
     parser.add_argument('-min_similarity', type=float, default=60.0, help='Minimum fuzzy similarity (0-100) to accept a fuzzy-path match')
     parser.add_argument('-allow_title_drift', action='store_true', help='Accept a fuzzy match whose title shares no word with the requested title')
     parser.add_argument('-require_artist', action='store_true', help='Also require the matched artist credit to share a word with the requested artist')
+    parser.add_argument('-title_coverage', type=float, default=TITLE_COVERAGE, help='Fraction of the requested title that must survive into a fuzzy match')
     parser.add_argument('-debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
     loglevel = 'DEBUG' if args.debug else 'INFO'
@@ -293,6 +295,7 @@ def setup_args():
     print(f'min_similarity={args.min_similarity}')
     print(f'allow_title_drift={args.allow_title_drift}')
     print(f'require_artist={args.require_artist}')
+    print(f'title_coverage={args.title_coverage}')
     print(f'debug={args.debug}')
     return args
 
