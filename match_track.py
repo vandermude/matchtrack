@@ -20,6 +20,7 @@ title               song title to resolve
 -artist             optional artist hint to improve matching
 -min_similarity     minimum fuzzy similarity (0-100) to accept a fuzzy-path match
 -allow_title_drift  accept a fuzzy match whose title shares no word with the requested title
+-require_artist     also require the matched artist credit to share a word with the requested artist
 -debug              enable debug logging
 """
 
@@ -59,7 +60,7 @@ def main():
     """
     args = setup_args()
     logger = logging.getLogger(__name__)
-    best = resolve(args.db_path, args.title, args.artist, args.min_similarity, not args.allow_title_drift)
+    best = resolve(args.db_path, args.title, args.artist, args.min_similarity, not args.allow_title_drift, args.require_artist)
     if best is None:
         logger.info(f'No confident match found.')
         sys.exit(2)
@@ -73,7 +74,7 @@ def main():
     logger.info(f'Canonical score: {best.canonical_score}')
 
 
-def resolve(db_path: str, title: str, artist: str = None, min_similarity: float = 60.0, require_title: bool = True):
+def resolve(db_path: str, title: str, artist: str = None, min_similarity: float = 60.0, require_title: bool = True, require_artist: bool = False):
     """
     Resolve a title (with optional artist) to the best Match: try the exact
     combined_lookup path first, then the fuzzy FTS + rapidfuzz path. Return
@@ -90,12 +91,12 @@ def resolve(db_path: str, title: str, artist: str = None, min_similarity: float 
         if not candidates:
             return None
         ranked = rerank_fuzzy(candidates, searchable_query)
-        return select_best(ranked, title, min_similarity, require_title)
+        return select_best(ranked, title, min_similarity, require_title, artist, require_artist)
     finally:
         con.close()
 
 
-def select_best(ranked: list, title: str, min_similarity: float, require_title: bool = True):
+def select_best(ranked: list, title: str, min_similarity: float, require_title: bool = True, artist: str = None, require_artist: bool = False):
     """
     Pick the best acceptable match from the ranked candidates. Similarity on
     its own is a weak filter, because the scorer weighs artist and title
@@ -104,14 +105,21 @@ def select_best(ranked: list, title: str, min_similarity: float, require_title: 
     unrelated recording by the right artist gets accepted. With require_title
     set, walk the ranking in order and take the highest-scoring candidate whose
     recording name actually shares a word with the requested title, so a
-    correct match further down can win over a confident wrong one. Return None
-    when nothing qualifies.
+    correct match further down can win over a confident wrong one.
+    require_artist applies the same test to the artist credit, which closes the
+    opposite drift - the right title by an unrelated artist - at the cost of
+    rejecting correct matches whose credit is spelled differently. It is
+    skipped when the caller supplied no artist, since a test cannot be made of
+    something that was never given. Return None when nothing qualifies.
     """
     for candidate in ranked:
         if candidate.similarity < min_similarity:
             break
-        if not require_title or share_token(title, candidate.recording_name):
-            return candidate
+        if require_title and not share_token(title, candidate.recording_name):
+            continue
+        if require_artist and artist and not share_token(artist, candidate.artist_credit_name):
+            continue
+        return candidate
     return None
 
 
@@ -270,6 +278,7 @@ def setup_args():
     parser.add_argument('-artist', default=None, help='Optional artist hint to improve matching')
     parser.add_argument('-min_similarity', type=float, default=60.0, help='Minimum fuzzy similarity (0-100) to accept a fuzzy-path match')
     parser.add_argument('-allow_title_drift', action='store_true', help='Accept a fuzzy match whose title shares no word with the requested title')
+    parser.add_argument('-require_artist', action='store_true', help='Also require the matched artist credit to share a word with the requested artist')
     parser.add_argument('-debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
     loglevel = 'DEBUG' if args.debug else 'INFO'
@@ -283,6 +292,7 @@ def setup_args():
     print(f'artist={args.artist}')
     print(f'min_similarity={args.min_similarity}')
     print(f'allow_title_drift={args.allow_title_drift}')
+    print(f'require_artist={args.require_artist}')
     print(f'debug={args.debug}')
     return args
 

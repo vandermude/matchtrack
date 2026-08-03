@@ -24,6 +24,22 @@ _NON_WORD_KEEP_SPACE_PATTERN = re.compile(r'[^\w\s]')
 _WHITESPACE_PATTERN = re.compile(r'\s+')
 TOKEN_MATCH_THRESHOLD = 85
 MIN_TOKEN_LENGTH = 3
+# Function words that must not carry a match on their own. Deliberately limited
+# to words with no topical content: 'down', 'back', 'love' and the like are left
+# out because in a song title they are the subject, not filler.
+STOPWORDS = frozenset({
+    'the', 'a', 'an', 'and', 'or', 'but', 'nor', 'of', 'in', 'on', 'at', 'to',
+    'for', 'with', 'from', 'by', 'as', 'into', 'onto', 'upon', 'is', 'are',
+    'was', 'were', 'be', 'been', 'being', 'am', 'it', 'its', 'this', 'that',
+    'these', 'those', 'i', 'you', 'he', 'she', 'we', 'they', 'me', 'him',
+    'her', 'us', 'them', 'my', 'your', 'his', 'our', 'their', 'not', 'no',
+    'so', 'if', 'than', 'then', 'there', 'here', 'what', 'which', 'who',
+    'whom', 'when', 'where', 'how', 'why', 'all', 'any', 'some', 'such',
+    'own', 'too', 'very', 'just', 'do', 'does', 'did', 'done', 'will',
+    'would', 'can', 'could', 'shall', 'should', 'may', 'might', 'must',
+    'have', 'has', 'had', 'one', 'two', 'part', 'pt', 'vol', 'feat', 'ft',
+    'featuring', 'version', 'remix', 'edit', 'mix', 'original', 'live',
+})
 
 
 def share_token(left: str, right: str, threshold: int = TOKEN_MATCH_THRESHOLD) -> bool:
@@ -47,13 +63,17 @@ def significant_tokens(text: str) -> set:
     """
     Tokens worth comparing on. Words shorter than MIN_TOKEN_LENGTH are dropped,
     because a title like 'Piano Concerto No. 1' otherwise corresponds to
-    'Walzer, op. 39, no. 15' on the strength of 'no' alone. Titles made up
-    entirely of short words ('Go', '1979') keep all their tokens, since for
-    those the short words are all the evidence there is.
+    'Walzer, op. 39, no. 15' on the strength of 'no' alone, and STOPWORDS are
+    dropped for the same reason at full length - 'the' is three characters, so
+    the length rule alone let 'Rep the Set' correspond to 'The Dualist'.
+    Credits and edition markers ('feat', 'remix', 'live') go too, since they
+    say nothing about which recording is meant. A title left with nothing keeps
+    all its tokens, since for 'The One' or 'Go' the filler is the only evidence
+    there is.
     """
     tokens = tokenize(text)
-    long_tokens = {t for t in tokens if len(t) >= MIN_TOKEN_LENGTH}
-    return long_tokens or tokens
+    strong_tokens = {t for t in tokens if len(t) >= MIN_TOKEN_LENGTH and t not in STOPWORDS}
+    return strong_tokens or tokens
 
 
 def tokenize(text: str) -> set:
