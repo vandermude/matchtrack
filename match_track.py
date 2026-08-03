@@ -9,14 +9,18 @@ calls. Two-tier strategy: first an exact path that normalizes the input into
 MusicBrainz's own combined_lookup key and checks for a direct hit; then a
 fuzzy fallback that uses FTS5 to retrieve a word-overlap shortlist and
 re-ranks it with rapidfuzz string similarity to handle typos, partial
-titles, and word reordering.
+titles, and word reordering. A fuzzy candidate is only accepted if its
+recording name shares a word with the requested title, since similarity alone
+weighs artist and title together and will otherwise settle for an unrelated
+recording by the right artist.
 =====================
 INPUT ARGS:
-db_path          path to the SQLite index built by build_index.py
-title            song title to resolve
--artist          optional artist hint to improve matching
--min_similarity  minimum fuzzy similarity (0-100) to accept a fuzzy-path match
--debug           enable debug logging
+db_path             path to the SQLite index built by build_index.py
+title               song title to resolve
+-artist             optional artist hint to improve matching
+-min_similarity     minimum fuzzy similarity (0-100) to accept a fuzzy-path match
+-allow_title_drift  accept a fuzzy match whose title shares no word with the requested title
+-debug              enable debug logging
 """
 
 
@@ -27,7 +31,7 @@ import logging
 import setup_logger
 from dataclasses import dataclass
 from rapidfuzz import fuzz
-from normalize import make_combined_lookup, make_searchable_text
+from normalize import make_combined_lookup, make_searchable_text, share_token
 
 
 CANDIDATE_LIMIT = 50
@@ -55,7 +59,7 @@ def main():
     """
     args = setup_args()
     logger = logging.getLogger(__name__)
-    best = resolve(args.db_path, args.title, args.artist, args.min_similarity)
+    best = resolve(args.db_path, args.title, args.artist, args.min_similarity, not args.allow_title_drift)
     if best is None:
         logger.info(f'No confident match found.')
         sys.exit(2)
@@ -69,11 +73,11 @@ def main():
     logger.info(f'Canonical score: {best.canonical_score}')
 
 
-def resolve(db_path: str, title: str, artist: str = None, min_similarity: float = 60.0):
+def resolve(db_path: str, title: str, artist: str = None, min_similarity: float = 60.0, require_title: bool = True):
     """
     Resolve a title (with optional artist) to the best Match: try the exact
     combined_lookup path first, then the fuzzy FTS + rapidfuzz path. Return
-    None if there are no candidates or the best fuzzy match is below
+    None if there are no candidates or nothing acceptable clears
     min_similarity.
     """
     con = sqlite3.connect(db_path)
@@ -86,14 +90,29 @@ def resolve(db_path: str, title: str, artist: str = None, min_similarity: float 
         if not candidates:
             return None
         ranked = rerank_fuzzy(candidates, searchable_query)
-        if not ranked:
-            return None
-        best = ranked[0]
-        if best.similarity < min_similarity:
-            return None
-        return best
+        return select_best(ranked, title, min_similarity, require_title)
     finally:
         con.close()
+
+
+def select_best(ranked: list, title: str, min_similarity: float, require_title: bool = True):
+    """
+    Pick the best acceptable match from the ranked candidates. Similarity on
+    its own is a weak filter, because the scorer weighs artist and title
+    together: a candidate whose name has nothing to do with the requested
+    title still scores in the mid-80s when the artist matches, which is how an
+    unrelated recording by the right artist gets accepted. With require_title
+    set, walk the ranking in order and take the highest-scoring candidate whose
+    recording name actually shares a word with the requested title, so a
+    correct match further down can win over a confident wrong one. Return None
+    when nothing qualifies.
+    """
+    for candidate in ranked:
+        if candidate.similarity < min_similarity:
+            break
+        if not require_title or share_token(title, candidate.recording_name):
+            return candidate
+    return None
 
 
 def try_exact_match(con: sqlite3.Connection, artist: str, title: str):
@@ -250,6 +269,7 @@ def setup_args():
     parser.add_argument('title', help='Song title to resolve')
     parser.add_argument('-artist', default=None, help='Optional artist hint to improve matching')
     parser.add_argument('-min_similarity', type=float, default=60.0, help='Minimum fuzzy similarity (0-100) to accept a fuzzy-path match')
+    parser.add_argument('-allow_title_drift', action='store_true', help='Accept a fuzzy match whose title shares no word with the requested title')
     parser.add_argument('-debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
     loglevel = 'DEBUG' if args.debug else 'INFO'
@@ -262,6 +282,7 @@ def setup_args():
     print(f'title={args.title}')
     print(f'artist={args.artist}')
     print(f'min_similarity={args.min_similarity}')
+    print(f'allow_title_drift={args.allow_title_drift}')
     print(f'debug={args.debug}')
     return args
 
