@@ -87,5 +87,5 @@ Lists each table's columns and a sample of rows. Handy for checking what
   `/home/vandermude/Dropbox/Projects/Suaditor/Logs/` and mirror INFO-level
   output to the console.
 - `setup_logger.py` and `model_config.py` are per-codebase copies. If you change
-  either, update the matching copy in `musicsuaditor/` too (see the note in
+  either, update the matching copy in `MusicSuaditor/` too (see the note in
   `CLAUDE.md`).
