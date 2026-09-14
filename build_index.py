@@ -24,16 +24,18 @@ import time
 import argparse
 import logging
 import setup_logger
+from project_config import LOG_DIR
 from normalize import make_searchable_text
 
 
 BATCH_SIZE = 5000
-LOG_DIR = '/home/vandermude/Dropbox/Projects/Suaditor/Logs'
 
 
 def main():
     """Build the local SQLite index from the canonical MusicBrainz CSV."""
     args = setup_args()
+    logger = logging.getLogger(__name__)
+    logger.info(f'Starting MusicBrainz load')
     build_index(args.csv_path, args.db_path)
 
 

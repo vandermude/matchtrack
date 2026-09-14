@@ -31,13 +31,13 @@ import sqlite3
 import argparse
 import logging
 import setup_logger
+from project_config import LOG_DIR
 from dataclasses import dataclass
 from rapidfuzz import fuzz
 from normalize import make_combined_lookup, make_searchable_text, share_token, covers, TITLE_COVERAGE
 
 
 CANDIDATE_LIMIT = 50
-LOG_DIR = '/home/vandermude/Dropbox/Projects/Suaditor/Logs'
 
 
 @dataclass
@@ -61,6 +61,7 @@ def main():
     """
     args = setup_args()
     logger = logging.getLogger(__name__)
+    logger.info(f'Starting MusicBrainz match track')
     best = resolve(args.db_path, args.title, args.artist, args.min_similarity, not args.allow_title_drift, args.require_artist, args.title_coverage)
     if best is None:
         logger.info(f'No confident match found.')

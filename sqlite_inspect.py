@@ -19,11 +19,11 @@ import sqlite3
 import argparse
 import logging
 import setup_logger
+from project_config import LOG_DIR
 
 
 DEFAULT_LIMIT = 10
 MAX_VALUE_LEN = 60
-LOG_DIR = '/home/vandermude/Dropbox/Projects/Suaditor/Logs'
 
 
 def main():
@@ -33,6 +33,7 @@ def main():
     """
     args = setup_args()
     logger = logging.getLogger(__name__)
+    logger.info(f'Starting Sqlite database inspect')
     con = sqlite3.connect(args.db_path)
     cur = con.cursor()
     cur.execute('''SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name''')

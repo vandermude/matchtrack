@@ -10,4 +10,8 @@ INPUT ARGS:
 """
 
 
+import os
+
+
+LOG_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'Logs'))
 ANTHROPIC_MODEL = 'claude-opus-4-8'
